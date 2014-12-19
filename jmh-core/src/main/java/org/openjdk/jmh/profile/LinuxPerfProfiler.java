@@ -42,14 +42,28 @@ import java.text.ParseException;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class LinuxPerfProfiler extends LinuxPerfUtil implements ExternalProfiler {
 
-    /** Delay collection for given time; -1 to detect automatically */
+	/**
+	 * Events to gather
+	 */
+	private static final String PERF_EVENTS_STRING = System.getProperty("jmh.perf.events",
+					"cycles,instructions,cache-references,cache-misses");
+
+	private static final String PERF_OUTPUT_SEPARATOR = System.getProperty(
+					"jmh.perf.output.separator", ",");	
+	
+	private static final String PERF_OUTPUT_FILE = System.getProperty(
+					"jmh.perf.output.file", "perf_events.log");	
+	
+	/** Delay collection for given time; -1 to detect automatically */
     private static final int DELAY_MSEC = Integer.getInteger("jmh.perf.delayMs", -1);
 
     @Override
@@ -63,11 +77,13 @@ public class LinuxPerfProfiler extends LinuxPerfUtil implements ExternalProfiler
             delay = DELAY_MSEC;
         }
 
-        if (IS_DELAYED) {
-            return Arrays.asList("perf", "stat", "--log-fd", "2", "-d", "-d", "-d", "-D", String.valueOf(delay));
-        } else {
-            return Arrays.asList("perf", "stat", "--log-fd", "2", "-d", "-d", "-d");
-        }
+		if (IS_DELAYED) {
+			return Arrays.asList("perf", "stat", "--log-fd", "2", "-e", PERF_EVENTS_STRING,
+							"-x", PERF_OUTPUT_SEPARATOR, "-o", PERF_OUTPUT_FILE, "-D", String.valueOf(delay));
+		} else {
+			return Arrays.asList("perf", "stat", "--log-fd", "2", "-e", PERF_EVENTS_STRING,
+							"-x", PERF_OUTPUT_SEPARATOR, "-o", PERF_OUTPUT_FILE);
+		}
     }
 
     @Override
@@ -124,39 +140,35 @@ public class LinuxPerfProfiler extends LinuxPerfUtil implements ExternalProfiler
             FileInputStream fis = new FileInputStream(stdErr);
             BufferedReader reader = new BufferedReader(new InputStreamReader(fis));
 
-            long cycles = 0;
-            long insns = 0;
-
+            Map<String,Long> perfCounterStats = new HashMap<String, Long>();
+            
             boolean printing = false;
             String line;
             while ((line = reader.readLine()) != null) {
                 if (printing) {
                     pw.println(line);
                 }
-                if (line.contains("Performance counter stats")) {
+                if (line.contains(PERF_OUTPUT_SEPARATOR)) {
                     printing = true;
                 }
 
-                Matcher m = Pattern.compile("(.*)#(.*)").matcher(line);
-                if (m.matches()) {
-                    String pair = m.group(1).trim();
-                    if (pair.contains(" cycles")) {
-                        try {
-                            cycles = NumberFormat.getInstance().parse(pair.split("[ ]+")[0]).longValue();
-                        } catch (ParseException e) {
-                            // do nothing, processing code will handle
-                        }
-                    }
-                    if (line.contains(" instructions")) {
-                        try {
-                            insns = NumberFormat.getInstance().parse(pair.split("[ ]+")[0]).longValue();
-                        } catch (ParseException e) {
-                            // do nothing, processing code will handle
-                        }
-                    }
+				/*
+				 * NOTE: assumes that the separator occurs twice in the output.
+				 * At least this is the case with perf version
+				 * 3.17.6-200.fc20.x86_64
+				 */
+                Matcher m = Pattern.compile("(\\d*)" + PERF_OUTPUT_SEPARATOR + PERF_OUTPUT_SEPARATOR + "(.*)").matcher(line);
+				if (m.matches()) {
+					String key = m.group(1).trim();
+					Long value = Long.parseLong(m.group(2).trim());
+
+					perfCounterStats.put(key, value);
                 }
             }
 
+            long cycles = perfCounterStats.getOrDefault("cycles", 0L);
+            long insns = perfCounterStats.getOrDefault("instructions", 0L);
+            
             if (!IS_DELAYED) {
                 pw.println();
                 pw.println("WARNING: Your system uses old \"perf\", which can not delay data collection.\n" +
