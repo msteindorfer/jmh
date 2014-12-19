@@ -79,10 +79,10 @@ public class LinuxPerfProfiler extends LinuxPerfUtil implements ExternalProfiler
 
 		if (IS_DELAYED) {
 			return Arrays.asList("perf", "stat", "-e", PERF_EVENTS_STRING,
-							"-x", PERF_OUTPUT_SEPARATOR, "-o", PERF_OUTPUT_FILE, "-D", String.valueOf(delay));
+							"-x", PERF_OUTPUT_SEPARATOR, "-o", PERF_OUTPUT_FILE, "--append", "-D", String.valueOf(delay));
 		} else {
 			return Arrays.asList("perf", "stat", "-e", PERF_EVENTS_STRING,
-							"-x", PERF_OUTPUT_SEPARATOR, "-o", PERF_OUTPUT_FILE);
+							"-x", PERF_OUTPUT_SEPARATOR, "-o", PERF_OUTPUT_FILE, "--append");
 		}
     }
 
